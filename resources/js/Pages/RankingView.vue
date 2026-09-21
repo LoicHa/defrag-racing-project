@@ -3,7 +3,7 @@
     import Rating from '@/Components/Rating.vue';
     import AmnestyBanner from '@/Components/AmnestyBanner.vue';
     import Pagination from '@/Components/Basic/Pagination.vue';
-    import { watchEffect, ref, computed, onMounted, onUnmounted } from 'vue';
+    import { watchEffect, watch, ref, computed, onMounted, onUnmounted } from 'vue';
     import { t } from '@/utils/i18n';
 
     const props = defineProps({
@@ -142,28 +142,50 @@
     }
 
     const ratingsLoaded = ref(false);
+    const fetchingRatings = ref(false);
+
+    /**
+     * The board is left out of the first response and asked for after the
+     * page is on screen. Anything that re-renders this page without it -
+     * switching the language posts and comes back here - hands us empty
+     * props again, so the fetch hangs on the props and not on mount: it
+     * used to run once and the page then sat on its skeleton for good.
+     */
+    const loadRatings = () => {
+        if (props.vq3Ratings || props.cpmRatings) {
+            ratingsLoaded.value = true;
+            return;
+        }
+
+        if (fetchingRatings.value) {
+            return;
+        }
+
+        fetchingRatings.value = true;
+        ratingsLoaded.value = false;
+        const start = Date.now();
+
+        router.reload({
+            only: ['vq3Ratings', 'cpmRatings', 'myVq3Rating', 'myCpmRating'],
+            onFinish: () => {
+                fetchingRatings.value = false;
+                const remaining = 400 - (Date.now() - start);
+                if (remaining > 0) {
+                    setTimeout(() => { ratingsLoaded.value = true; }, remaining);
+                } else {
+                    ratingsLoaded.value = true;
+                }
+            }
+        });
+    };
+
+    watch(() => [props.vq3Ratings, props.cpmRatings], () => loadRatings());
 
     onMounted(() => {
         window.addEventListener("resize", resizeScreen);
         startInterval();
 
-        // Lazy-load rating data (page renders immediately with header/filters)
-        if (!props.vq3Ratings && !props.cpmRatings) {
-            const start = Date.now();
-            router.reload({
-                only: ['vq3Ratings', 'cpmRatings', 'myVq3Rating', 'myCpmRating'],
-                onFinish: () => {
-                    const remaining = 400 - (Date.now() - start);
-                    if (remaining > 0) {
-                        setTimeout(() => { ratingsLoaded.value = true; }, remaining);
-                    } else {
-                        ratingsLoaded.value = true;
-                    }
-                }
-            });
-        } else {
-            ratingsLoaded.value = true;
-        }
+        loadRatings();
     });
 
     onUnmounted(() => {

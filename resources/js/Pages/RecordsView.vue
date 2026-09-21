@@ -4,7 +4,7 @@
     import AmnestyBanner from '@/Components/AmnestyBanner.vue';
     import Pagination from '@/Components/Basic/Pagination.vue';
     import Dropdown from '@/Components/Laravel/Dropdown.vue';
-    import { watchEffect, ref, computed, onMounted } from 'vue';
+    import { watchEffect, watch, ref, computed, onMounted } from 'vue';
 
     const page = usePage();
     const cpmFirst = computed(() => page.props.physicsOrder === 'cpm_first');
@@ -49,23 +49,48 @@
     });
 
     const recordsLoaded = ref(!!props.vq3Records || !!props.cpmRecords);
+    const fetching = ref(false);
 
-    onMounted(() => {
-        if (!props.vq3Records && !props.cpmRecords) {
-            const start = Date.now();
-            router.reload({
-                only: ['vq3Records', 'cpmRecords'],
-                onFinish: () => {
-                    const remaining = 400 - (Date.now() - start);
-                    if (remaining > 0) {
-                        setTimeout(() => { recordsLoaded.value = true; }, remaining);
-                    } else {
-                        recordsLoaded.value = true;
-                    }
-                }
-            });
+    /**
+     * The lists are left out of the first response and asked for after the
+     * page is on screen. Anything that re-renders this page without them -
+     * switching the language posts and comes back here - hands us empty
+     * props again, so the fetch hangs on the props and not on mount: it
+     * used to run once and the page then sat on its skeleton for good.
+     */
+    const loadRecords = () => {
+        if (fetching.value || props.vq3Records || props.cpmRecords) {
+            return;
         }
+
+        fetching.value = true;
+        recordsLoaded.value = false;
+        const start = Date.now();
+
+        router.reload({
+            only: ['vq3Records', 'cpmRecords'],
+            onFinish: () => {
+                fetching.value = false;
+                const remaining = 400 - (Date.now() - start);
+                if (remaining > 0) {
+                    setTimeout(() => { recordsLoaded.value = true; }, remaining);
+                } else {
+                    recordsLoaded.value = true;
+                }
+            }
+        });
+    };
+
+    watch(() => [props.vq3Records, props.cpmRecords], ([vq3, cpm]) => {
+        if (vq3 || cpm) {
+            recordsLoaded.value = true;
+            return;
+        }
+
+        loadRecords();
     });
+
+    onMounted(loadRecords);
 
     const physics = ref('all');
     const mode = ref('all');
